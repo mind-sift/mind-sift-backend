@@ -1,4 +1,5 @@
 import os
+import json
 from app.dtos.notification import NotificationDTO
 from langchain_core.runnables import Runnable
 from langchain_milvus.vectorstores import Milvus
@@ -10,6 +11,13 @@ from langchain_core.runnables import RunnableLambda
 
 def store_message(input: dict, vector_store: VectorStore) -> dict:
 
+    print(input)
+    try:
+        with open("./output_json.json", "a") as f:
+            f.write(",\n")
+            json.dump(input, f)
+    except:
+        print("No output json file found")
     copy_input = input.copy()
     message = copy_input.pop("message")
     pk = copy_input.pop("id")

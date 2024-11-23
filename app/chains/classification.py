@@ -7,16 +7,34 @@ from langchain_core.vectorstores import VectorStore
 from langchain_core.documents import Document
 from functools import partial
 from langchain_core.runnables import RunnableLambda
+from langchain_core.prompts import PromptTemplate
+
+notification_prompt = """
+<NOTIFICATION>
+
+    <Title>
+        {title}
+    </Title>
+
+    <Message>
+        {message}
+    </Message>
+
+</NOTIFICATION>
+"""
+
+notification_templates = PromptTemplate.from_template(notification_prompt)
 
 def store_message(input: dict, vector_store: VectorStore) -> dict:
 
     copy_input = input.copy()
-    message = copy_input.pop("message")
+    copy_input["timestamp"] = float(copy_input["timestamp"])
+    final_message = notification_templates.format(**copy_input)
     pk = copy_input.pop("id")
 
     notification_document = Document(
         id=pk,
-        page_content=message,
+        page_content=final_message,
         metadata={
             **copy_input,
         },

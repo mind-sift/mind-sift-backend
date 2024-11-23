@@ -52,6 +52,7 @@ plugins:
 custom:
   pythonRequirements:
     layer: true
+    slim: true
 
 package:
   exclude:

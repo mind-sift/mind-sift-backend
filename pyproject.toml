@@ -14,11 +14,19 @@ uvicorn = "^0.23.2"
 langserve = {version = ">=0.3,<1.0", extras = ["server"]}
 langchain-aws = "^0.2.7"
 mangum = "^0.19.0"
-langchain-milvus = "^0.1.7"
+langchain = "^0.3.8"
 
 
 [tool.poetry.group.dev.dependencies]
 langchain-cli = ">=0.0.15"
+
+
+[tool.poetry.group.milvus.dependencies]
+langchain-milvus = "^0.1.7"
+
+
+[tool.poetry.group.clusters.dependencies]
+scikit-learn = "^1.5.2"
 
 [build-system]
 requires = ["poetry-core"]

@@ -428,3 +428,4 @@ assets/personal/**/*
 !assets/personal/.keep
 unzip_requirements.py
 .requirements.zip
+layers/*

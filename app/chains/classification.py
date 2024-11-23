@@ -1,4 +1,5 @@
 import os
+import json
 from app.dtos.notification import NotificationDTO
 from langchain_core.runnables import Runnable
 from langchain_milvus.vectorstores import Milvus
@@ -27,6 +28,13 @@ notification_templates = PromptTemplate.from_template(notification_prompt)
 
 def store_message(input: dict, vector_store: VectorStore) -> dict:
 
+    print(input)
+    try:
+        with open("./output_json.json", "a") as f:
+            f.write(",\n")
+            json.dump(input, f)
+    except:
+        print("No output json file found")
     copy_input = input.copy()
     copy_input["timestamp"] = float(copy_input["timestamp"])
     final_message = notification_templates.format(**copy_input)

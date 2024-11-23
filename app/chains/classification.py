@@ -1,3 +1,4 @@
+from operator import itemgetter
 import os
 import json
 from app.dtos.notification import NotificationDTO
@@ -7,7 +8,7 @@ from langchain_aws.embeddings import BedrockEmbeddings
 from langchain_core.vectorstores import VectorStore
 from langchain_core.documents import Document
 from functools import partial
-from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_core.prompts import PromptTemplate
 
 notification_prompt = """
@@ -28,13 +29,6 @@ notification_templates = PromptTemplate.from_template(notification_prompt)
 
 def store_message(input: dict, vector_store: VectorStore) -> dict:
 
-    print(input)
-    try:
-        with open("./output_json.json", "a") as f:
-            f.write(",\n")
-            json.dump(input, f)
-    except:
-        print("No output json file found")
     copy_input = input.copy()
     copy_input["timestamp"] = float(copy_input["timestamp"])
     final_message = notification_templates.format(**copy_input)
@@ -52,6 +46,8 @@ def store_message(input: dict, vector_store: VectorStore) -> dict:
         documents=[notification_document],
         ids=[pk]
     )
+
+    input["final_message"] = final_message
 
     return input
 
@@ -73,10 +69,17 @@ def get_classification_chain() -> Runnable:
         connection_args=connection_args,
         collection_name="notifications",
     )
-    
 
-    classification_chain: Runnable =  RunnableLambda(
+    retriever = vector_store.as_retriever(
+    )
+    
+    classification_chain: Runnable =  (
+        RunnableLambda(
         func=partial(store_message, vector_store=vector_store)
+    ) | {
+        "original_input": RunnablePassthrough(),
+        "similar_nofications": itemgetter("final_message") |  retriever
+    }
     ).with_types(
         input_type=NotificationDTO,
     )

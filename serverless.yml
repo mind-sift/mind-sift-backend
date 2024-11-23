@@ -15,6 +15,15 @@ provider:
             - "bedrock:InvokeModelWithResponseStream"
           Resource:
             - "arn:aws:bedrock:us-west-2::foundation-model/*" # Allow all models in the region
+  environment:
+    LANGCHAIN_TRACING_V2: "true"
+    OPENAI_ORGANIZATION: ${env:OPENAI_ORGANIZATION}
+    OPENAI_API_KEY: ${env:OPENAI_API_KEY}
+    LANGCHAIN_API_KEY: ${env:LANGCHAIN_API_KEY}
+    LANGCHAIN_PROJECT: ${env:LANGCHAIN_PROJECT}
+    ZILLIZ_CLOUD_URI: ${env:ZILLIZ_CLOUD_URI}
+    ZILLIZ_CLOUD_USER: ${env:ZILLIZ_CLOUD_USER}
+    ZILLIZ_CLOUD_PASSWORD: ${env:ZILLIZ_CLOUD_PASSWORD}
   apiGateway:
     usagePlan:
       quota:

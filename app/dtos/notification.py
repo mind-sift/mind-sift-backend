@@ -1,7 +1,9 @@
 from pydantic import BaseModel, Field
 from typing import Literal
+from uuid import uuid4
 
 class NotificationDTO(BaseModel):
+    id: str = Field(description="ID of the notification", default_factory=lambda: str(uuid4()))
     title: str = Field(description="description of the notification", default="Hackathon 2 esta si que si: Matias Ovalle")
     message: str = Field(description="Message of the notification")
     app_name: str = Field(description="Name of the app that generated the notification", default="WhatsApp")

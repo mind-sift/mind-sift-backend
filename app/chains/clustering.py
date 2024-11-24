@@ -15,7 +15,6 @@ from app.prompts.reduce import reduce_messages_template
 from langchain_core.output_parsers import StrOutputParser
 from langchain_milvus.vectorstores import Milvus
 from langchain_aws.embeddings import BedrockEmbeddings
-from hashlib import md5
 from supabase import create_client, Client
 
 
@@ -56,7 +55,8 @@ def get_vectors(
     # Query vectors and PKs from the past week
     results = collection.query(
         expr=f"timestamp >= {one_week_ago} and timestamp <= {current_time}",
-        output_fields=fields
+        output_fields=fields,
+        limit=30
     )
     
     # Parse results
@@ -175,7 +175,7 @@ def clusters_of_documents() -> dict[int, list[Document]]:
     clustered_df = perform_dbscan_cosine_clustering(
         df=vectors_df,
         eps=0.2,
-        min_samples=3
+        min_samples=5
     )
 
     source_data = {
@@ -234,7 +234,7 @@ def get_clusters_chain() -> Runnable:
         search_type="similarity_score_threshold",
         search_kwargs={
             "k": max_similar,
-            "score_threshold": 0.9
+            "score_threshold": 0.8
         }
     )
 
@@ -334,7 +334,9 @@ def get_clusters_chain() -> Runnable:
 
         categories_parallelizable = {
                 "category": itemgetter("category"),
-                "candidates": itemgetter("category") | categories_retriever
+                "candidates": (itemgetter("category") | categories_retriever).with_fallbacks(
+                    fallbacks=[RunnableLambda(lambda x: [])]
+                )
             }
 
         routing_chain: Runnable = categories_parallelizable | RunnableLambda(_reduce_candidates)

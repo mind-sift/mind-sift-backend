@@ -21,6 +21,7 @@ from supabase import create_client, Client
 
 from app.chat_models.default import get_model_chain
 from app.prompts.rule_description import rule_description_messages_template
+from app.utils import category_id
 
 SEVEN_DAYS = 7 * 24 * 60 * 60
 
@@ -294,7 +295,7 @@ def get_clusters_chain() -> Runnable:
                 )
 
             category_descriptor: Document = Document(
-                id=str(md5(category_elements["category"].encode()).hexdigest()),
+                id=category_id(category_elements["category"]),
                 page_content=category_elements["category"],
                 metadata={
                     "generated_by": json.dumps(sources_pks),

@@ -22,6 +22,7 @@ from app.prompts.dismissal_evaluator import evaluator_messages_template
 
 from app.chat_models.default import get_model_chain
 from app.dtos.notification import NotificationDTO
+from supabase import create_client, Client
 
 import requests
 
@@ -86,6 +87,13 @@ def store_message(input: dict, vector_store: VectorStore) -> dict:
     input["final_message"] = final_message
 
     return input
+
+
+def insert_message_to_supabase(message_data: dict):
+    supabase_url = os.environ["SUPABASE_URL"]
+    supabase_key = os.environ["SUPABASE_KEY"]
+    supabase: Client = create_client(supabase_url, supabase_key)
+    supabase.table("messages").upsert(json=message_data).execute()
 
 
 def get_classification_chain() -> Runnable:
@@ -155,6 +163,13 @@ def get_classification_chain() -> Runnable:
         input["is_dismissible"] = not(bool(
             expected_category in categories_names
         )) and len(categories_names) > 0 and expected_category != ""
+        message_data = {
+            "title": input["original_input"]["title"],
+            "message": input["original_input"]["message"],
+            "is_dismissable": input["is_dismissable"],
+        }
+        insert_message_to_supabase(message_data)
+
         return input
     
     def _check_active_inferred_categories(input: dict):

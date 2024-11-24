@@ -1,6 +1,7 @@
+import json
 from operator import itemgetter
 import os
-from langchain_core.runnables import Runnable, RunnableLambda
+from langchain_core.runnables import Runnable, RunnableLambda, RunnablePassthrough
 
 import time
 from pymilvus import connections, Collection
@@ -12,7 +13,9 @@ from langchain_core.documents import Document
 from app.dtos.clustering import ClusteringDTO
 from app.prompts.reduce import reduce_messages_template
 from langchain_core.output_parsers import StrOutputParser
-from langchain.hub import pull
+from langchain_milvus.vectorstores import Milvus
+from langchain_aws.embeddings import BedrockEmbeddings
+from hashlib import md5
 
 from app.chat_models.default import get_model_chain
 
@@ -31,34 +34,32 @@ def get_vectors(
     Returns:
         pd.DataFrame: A DataFrame containing the vectors and PKs.
     """
-    # Connect to Zilliz Cloud
-    connections.connect(
-        alias="default",
-        uri=os.environ.get("ZILLIZ_CLOUD_URI"),
-        user=os.environ.get("ZILLIZ_CLOUD_USER"),
-        password=os.environ.get("ZILLIZ_CLOUD_PASSWORD"),
-        secure=True
-    )
     
     # Load the collection
-    collection = Collection(collection_name)
+    collection = get_vector_store_client(collection_name)
     
     # Current time and one week ago
     current_time = time.time()
     one_week_ago = current_time - time_window
+
+    fields = [
+        "pk",
+        "vector",
+        "text"
+    ]
+
     
     # Query vectors and PKs from the past week
     results = collection.query(
         expr=f"timestamp >= {one_week_ago} and timestamp <= {current_time}",
-        output_fields=["vector", "pk", "text"]
+        output_fields=fields
     )
     
     # Parse results
     data = [
         {
-            "vector": result["vector"],
-            "pk": result["pk"],
-            "text": result["text"]
+            field: result[field]
+            for field in fields
         }
         for result in results
     ]
@@ -67,6 +68,68 @@ def get_vectors(
     df = pd.DataFrame(data)
     return df
 
+def get_vector_store_client(collection_name: str = "notifications") -> Collection:
+
+    connection_args = {
+        "uri": os.environ.get("ZILLIZ_CLOUD_URI"),
+        "user": os.environ.get("ZILLIZ_CLOUD_USER"),
+        "password": os.environ.get("ZILLIZ_CLOUD_PASSWORD"),
+        "secure": True,
+    }
+
+    connections.connect(
+        **connection_args,
+    )
+    
+    collection = Collection(collection_name)
+
+    return collection
+
+def upsert_vectors(
+    pk: str,
+    data: dict,
+    fields: list | None = None
+    ):
+    """
+    Upsert a document into the Milvus collection.
+
+    Args:
+        pk (str): The primary key of the document.
+        data (dict): The data to upsert.
+    """
+    if fields is None:
+        fields = [
+            "pk",
+            "vector",
+            "notification_id",
+            "notification_tag",
+            "package_name",
+            "source_user_iden",
+            "title",
+            "message",
+            "app_name",
+            "timestamp",
+            "category",
+            "text"
+        ]
+
+    # Connect to the Milvus collection
+    collection = get_vector_store_client()
+
+    output = collection.query(
+        expr=f"pk == '{pk}'",
+        output_fields=fields
+    )
+    
+    # Upsert the document
+    collection.upsert(
+        data={
+            "pk": pk,
+            **output[0],
+            **data
+        },
+    )
+    
 
 def perform_dbscan_cosine_clustering(df, eps=0.1, min_samples=5):
     """
@@ -107,8 +170,8 @@ def clusters_of_documents() -> dict[int, list[Document]]:
 
     clustered_df = perform_dbscan_cosine_clustering(
         df=vectors_df,
-        eps=0.1,
-        min_samples=5
+        eps=0.5,
+        min_samples=1
     )
 
     source_data = {
@@ -121,7 +184,10 @@ def clusters_of_documents() -> dict[int, list[Document]]:
             Document(
                 id=str(doc["pk"]),
                 page_content=doc["text"],
-                metadata=doc
+                metadata={
+                    key: value
+                    for key, value in doc.items() if key != "pk" or key != "text"
+                }
             )
             for doc in docs
         ]
@@ -133,7 +199,37 @@ def clusters_of_documents() -> dict[int, list[Document]]:
 
 def get_clusters_chain() -> Runnable:
 
-    chat_model = get_model_chain()
+    chat_model = get_model_chain(
+        temperature=0.3,
+        #top_p=0.95,
+    )
+
+    embeddings = BedrockEmbeddings(
+        model_id="amazon.titan-embed-text-v1"
+    )
+
+    connection_args = {
+        "uri": os.environ.get("ZILLIZ_CLOUD_URI"),
+        "user": os.environ.get("ZILLIZ_CLOUD_USER"),
+        "password": os.environ.get("ZILLIZ_CLOUD_PASSWORD"),
+        "secure": True,
+    }
+
+    vector_store = Milvus(
+        embedding_function=embeddings,
+        connection_args=connection_args,
+        collection_name="categories",
+    )
+
+    max_similar = 9
+
+    categories_retriever = vector_store.as_retriever(
+        search_type="similarity_score_threshold",
+        search_kwargs={
+            "k": max_similar,
+            "score_threshold": 0.9
+        }
+    )
 
     chain: Runnable = {
             "documents": itemgetter("documents")
@@ -142,6 +238,11 @@ def get_clusters_chain() -> Runnable:
     def _get_clusters(_, **kwargs):
 
         input_data = clusters_of_documents()
+        input_data = {
+            key: value
+            for key, value in input_data.items()
+            if key != -1
+        }
 
         values = zip(chain.batch(
             inputs=[
@@ -163,9 +264,101 @@ def get_clusters_chain() -> Runnable:
             }
             for category, original_docs in values
         ]
+    
+    def _update_metadata(inputs: list):
+
+        categories = []
+        
+        for category_elements in inputs:
+            sources_pks = []
+            for doc in category_elements["documents"]:
+                sources_pks.append(doc.id)
+                upsert_metadata = {
+                    **doc.metadata,
+                    "category": category_elements["category"],
+                }
+                upsert_metadata.pop("cluster")
+                upsert_vectors(
+                    pk=doc.id,
+                    data=upsert_metadata
+                )
+
+            category_descriptor: Document = Document(
+                id=str(md5(category_elements["category"].encode()).hexdigest()),
+                page_content=category_elements["category"],
+                metadata={
+                    "generated_by": json.dumps(sources_pks)
+                }
+            )
+        
+            categories.append(category_descriptor)
+        
+        return categories
+    
+    def _store_categories(inputs: list):
+        """
+        Store the categories in the Milvus collection.
+        """
+        vector_store.add_documents(
+            documents=inputs,
+            ids=[category.id for category in inputs]
+        )
+        return inputs
+    
+    def _reduce_candidates(inputs: dict):
+            """
+            Reduce the candidate if max_similar is reached.
+            Discarding the category, due to the high similarity. 
+            """
+
+            output = {
+                "route": "store" if len(inputs["candidates"]) < max_similar else "discard"
+            }
+            return output
 
 
-    return RunnableLambda(_get_clusters).with_types(
+    def _route_categories(inputs: list):
+        
+
+        categories_parallelizable = {
+                "category": itemgetter("category"),
+                "candidates": itemgetter("category") | categories_retriever
+            }
+
+        routing_chain: Runnable = categories_parallelizable | RunnableLambda(_reduce_candidates)
+
+
+        routes = routing_chain.batch(inputs=[
+            {
+                "category": category["category"],
+            }
+            for category in inputs
+        ])
+
+        return routes
+    
+    def _allow_insertion(inputs: dict):
+        """
+        Allow insertion of the category if the route is "store".
+        """
+
+        return [
+            category
+            for category, route in zip(inputs["clusters"], inputs["routes"])
+            if route["route"] == "store"
+        ]
+
+
+    return (
+            RunnableLambda(_get_clusters) |
+            {
+                "clusters": RunnablePassthrough(),
+                "routes": RunnableLambda(_route_categories)
+            } |
+            RunnableLambda(_allow_insertion) |
+            RunnableLambda(_update_metadata) |
+            RunnableLambda(_store_categories)
+        ).with_types(
         input_type=ClusteringDTO,
     ) 
     

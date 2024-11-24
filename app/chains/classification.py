@@ -211,6 +211,7 @@ def get_classification_chain() -> Runnable:
             dismiss_push(
                 push=input["original_input"]["original_input"]["original_input"]
             )
+        return input
 
     classification_chain: Runnable = (
         RunnableLambda(func=partial(store_message, vector_store=vector_store))

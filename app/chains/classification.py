@@ -15,6 +15,7 @@ from langchain_core.vectorstores import VectorStore
 from langchain_milvus.vectorstores import Milvus
 
 from app.dtos.notification import NotificationDTO
+from supabase import create_client, Client
 
 notification_prompt = """
 <NOTIFICATION>
@@ -55,6 +56,13 @@ def store_message(input: dict, vector_store: VectorStore) -> dict:
     return input
 
 
+def insert_message_to_supabase(message_data: dict):
+    supabase_url = os.environ["SUPABASE_URL"]
+    supabase_key = os.environ["SUPABASE_KEY"]
+    supabase: Client = create_client(supabase_url, supabase_key)
+    supabase.table("messages").upsert(json=message_data).execute()
+
+
 def get_classification_chain() -> Runnable:
 
     embeddings = BedrockEmbeddings(model_id="amazon.titan-embed-text-v1")
@@ -85,6 +93,14 @@ def get_classification_chain() -> Runnable:
             original_input_category is not None
             and original_input_category in other_categories
         )
+
+        message_data = {
+            "title": input["original_input"]["title"],
+            "message": input["original_input"]["message"],
+            "is_dismissable": input["is_dismissable"],
+        }
+        insert_message_to_supabase(message_data)
+
         return input
 
     classification_chain: Runnable = (

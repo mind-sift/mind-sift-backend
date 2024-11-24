@@ -45,7 +45,7 @@ export LANGCHAIN_PROJECT=<your-project>  # if not specified, defaults to "defaul
 ## Launch LangServe
 
 ```bash
-langchain serve
+poetry run langchain serve
 ```
 
 ## Running in Docker

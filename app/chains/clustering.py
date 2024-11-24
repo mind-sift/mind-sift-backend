@@ -16,8 +16,11 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_milvus.vectorstores import Milvus
 from langchain_aws.embeddings import BedrockEmbeddings
 from hashlib import md5
+from supabase import create_client, Client
+
 
 from app.chat_models.default import get_model_chain
+from app.prompts.rule_description import rule_description_messages_template
 
 SEVEN_DAYS = 7 * 24 * 60 * 60
 
@@ -170,8 +173,8 @@ def clusters_of_documents() -> dict[int, list[Document]]:
 
     clustered_df = perform_dbscan_cosine_clustering(
         df=vectors_df,
-        eps=0.5,
-        min_samples=1
+        eps=0.2,
+        min_samples=3
     )
 
     source_data = {
@@ -215,6 +218,9 @@ def get_clusters_chain() -> Runnable:
         "secure": True,
     }
 
+    supabase_url = os.environ["SUPABASE_URL"]
+    supabase_key = os.environ["SUPABASE_KEY"]
+
     vector_store = Milvus(
         embedding_function=embeddings,
         connection_args=connection_args,
@@ -233,7 +239,10 @@ def get_clusters_chain() -> Runnable:
 
     chain: Runnable = {
             "documents": itemgetter("documents")
-        } | reduce_messages_template | chat_model | StrOutputParser()
+        } | {
+            "category": reduce_messages_template | chat_model | StrOutputParser(),
+            "description": rule_description_messages_template | chat_model | StrOutputParser()
+        } | RunnablePassthrough()
 
     def _get_clusters(_, **kwargs):
 
@@ -259,7 +268,8 @@ def get_clusters_chain() -> Runnable:
 
         return [
             {
-                "category": category,
+                "category": category["category"],
+                "description": category["description"],
                 "documents": original_docs
             }
             for category, original_docs in values
@@ -287,7 +297,7 @@ def get_clusters_chain() -> Runnable:
                 id=str(md5(category_elements["category"].encode()).hexdigest()),
                 page_content=category_elements["category"],
                 metadata={
-                    "generated_by": json.dumps(sources_pks)
+                    "generated_by": json.dumps(sources_pks),
                 }
             )
         
@@ -299,10 +309,11 @@ def get_clusters_chain() -> Runnable:
         """
         Store the categories in the Milvus collection.
         """
-        vector_store.add_documents(
-            documents=inputs,
-            ids=[category.id for category in inputs]
-        )
+        if inputs:
+            vector_store.add_documents(
+                documents=inputs,
+                ids=[category.id for category in inputs]
+            )
         return inputs
     
     def _reduce_candidates(inputs: dict):
@@ -347,6 +358,28 @@ def get_clusters_chain() -> Runnable:
             for category, route in zip(inputs["clusters"], inputs["routes"])
             if route["route"] == "store"
         ]
+    
+    def _update_user_options(inputs: list):
+        """
+        Update the user options in the Milvus collection.
+        """
+        supabase: Client = create_client(supabase_url, supabase_key)
+        if inputs:
+            payload = [
+                    {
+                        "id": category.id,
+                        "name": category.page_content,
+                        "description": inputs["original_categories"][idx]["description"],
+                    }
+                    for idx, category in enumerate(inputs["vectorized_categories"])
+                ]
+
+            response = supabase.table("categoriesConfig").upsert(
+                json=payload
+            ).execute()
+
+            return response
+        return inputs
 
 
     return (
@@ -356,8 +389,10 @@ def get_clusters_chain() -> Runnable:
                 "routes": RunnableLambda(_route_categories)
             } |
             RunnableLambda(_allow_insertion) |
-            RunnableLambda(_update_metadata) |
-            RunnableLambda(_store_categories)
+            {
+                "vectorized_categories": RunnableLambda(_update_metadata) | RunnableLambda(_store_categories),
+                "original_categories": RunnablePassthrough()
+            } | RunnableLambda(_update_user_options)
         ).with_types(
         input_type=ClusteringDTO,
     ) 

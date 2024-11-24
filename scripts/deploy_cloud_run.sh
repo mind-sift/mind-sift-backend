@@ -54,5 +54,7 @@ gcloud run deploy "$SERVICE_NAME" \
   --set-env-vars AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
   --set-env-vars AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
   --set-env-vars AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
+  --set-env-vars SUPABASE_URL=${SUPABASE_URL} \
+  --set-env-vars SUPABASE_KEY=${SUPABASE_KEY}
 
 echo "Deployment complete! Service is open to the world."

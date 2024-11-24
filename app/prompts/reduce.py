@@ -20,13 +20,15 @@ system_reduce_prompt = """
     - Use at most 6 words in the summary.
     - Avoid formatting the summary.
     - Avoid punctuation in the summary.
+    - Focus only in one theme for the summary, prevent unrelated information in the generated interpretation.
+    - Avoid "and" or "or" in the summary, heavily bias towards the most important information.
 </RESTRICTIONS>
 """
 
 user_reduce_prompt = """
 <TASK>
     Create a reduced interpretation of the following notifications in the DOCUMENTS section. Ensure that the summary is concise and captures the main points.
-    Reduce the notifications to a .
+    Reduce the notifications to a maximum of 6 words, trying to optimize for less words but still capturing the main points.
 </TASK>
 
 <DOCUMENTS>

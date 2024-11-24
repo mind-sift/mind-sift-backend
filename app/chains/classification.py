@@ -200,7 +200,7 @@ def get_classification_chain() -> Runnable:
 
         active_categories = (
             supabase.table("categoriesConfig")
-            .select("name", "description")
+            .select("name", "description", "type")
             .eq('active', True)
             .eq("type", "fixed")
             .execute()

@@ -23,6 +23,8 @@ from app.prompts.dismissal_evaluator import evaluator_messages_template
 from app.chat_models.default import get_model_chain
 from app.dtos.notification import NotificationDTO
 
+import requests
+
 notification_prompt = """
 <NOTIFICATION>
 
@@ -38,6 +40,30 @@ notification_prompt = """
 """
 
 notification_templates = PromptTemplate.from_template(notification_prompt)
+
+
+def dismiss_push(push: dict):
+    KEY = os.getenv("PUSHBULLET_API_KEY")
+
+    headers = {
+        "Access-Token": KEY,
+        "Content-Type": "application/json",
+    }
+
+    json_data = {
+        "push": {
+            "notification_id": push["notification_id"],
+            "notification_tag": push["notification_tag"],
+            "package_name": push["package_name"],
+            "source_user_iden": push["source_user_iden"],
+            "type": "dismissal",
+        },
+        "type": "push",
+    }
+    response = requests.post(
+        "https://api.pushbullet.com/v2/ephemerals", headers=headers, json=json_data
+    )
+    print("Notification dismiss response status code", response.status_code)
 
 
 def store_message(input: dict, vector_store: VectorStore) -> dict:
@@ -160,6 +186,14 @@ def get_classification_chain() -> Runnable:
         input["is_dismissible"] = input["original_input"]["is_dismissible"]
 
         return input
+    
+    def _manage_notification(input: dict):
+        dismissal_resolution: NotificationDismissal = input["is_dismissible"]
+
+        if dismissal_resolution.is_dismissible:
+            dismiss_push(
+                push=input["original_input"]
+            )
 
     classification_chain: Runnable = (
         RunnableLambda(func=partial(store_message, vector_store=vector_store))
@@ -185,8 +219,10 @@ def get_classification_chain() -> Runnable:
                 "final_message": itemgetter("final_message"),
                 "is_dismissible": itemgetter("is_dismissible"),
                 "schema": RunnableLambda(lambda _: NotificationDismissal.model_json_schema()),
-            } | evaluator_messages_template | evaluator_model,
-        }
+            } | evaluator_messages_template | evaluator_model ,
+        } | RunnableLambda(
+            _manage_notification
+            )
     ).with_types(
         input_type=NotificationDTO,
     )

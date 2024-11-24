@@ -135,7 +135,7 @@ def upsert_vectors(
     )
     
 
-def perform_dbscan_cosine_clustering(df, eps=0.1, min_samples=5):
+def perform_dbscan_cosine_clustering(df: pd.DataFrame, eps=0.1, min_samples=5):
     """
     Perform DBSCAN clustering using cosine similarity.
 
@@ -147,30 +147,34 @@ def perform_dbscan_cosine_clustering(df, eps=0.1, min_samples=5):
     Returns:
         pd.DataFrame: The original DataFrame with an added `cluster` column.
     """
-    # Convert vectors to a NumPy array
-    vectors = np.array(df["vector"].tolist())
-    
-    # Calculate cosine distances
-    distance_matrix = cosine_distances(vectors)
+    if not df.empty:
+        # Convert vectors to a NumPy array
+        vectors = np.array(df["vector"].tolist())
+        
+        # Calculate cosine distances
+        distance_matrix = cosine_distances(vectors)
 
-    # Run DBSCAN clustering with precomputed distances
-    dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric="precomputed")
-    cluster_labels = dbscan.fit_predict(distance_matrix)
-    
-    # Add cluster labels to the DataFrame
-    df["cluster"] = cluster_labels
-    
-    # Print the number of clusters
-    n_clusters = len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0)  # Exclude noise (-1)
-    print(f"Number of clusters found: {n_clusters}")
+        # Run DBSCAN clustering with precomputed distances
+        dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric="precomputed")
+        cluster_labels = dbscan.fit_predict(distance_matrix)
+        
+        # Add cluster labels to the DataFrame
+        df["cluster"] = cluster_labels
+        
+        # Print the number of clusters
+        n_clusters = len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0)  # Exclude noise (-1)
+        print(f"Number of clusters found: {n_clusters}")
     return df
 
 def clusters_of_documents() -> dict[int, list[Document]]:
 
     vectors_df = get_vectors(
         collection_name="notifications",
-        time_window=30
+        time_window=60 * 60
     )
+
+    if vectors_df.empty:
+        return {}
 
     clustered_df = perform_dbscan_cosine_clustering(
         df=vectors_df,
@@ -367,7 +371,7 @@ def get_clusters_chain() -> Runnable:
         Update the user options in the Milvus collection.
         """
         supabase: Client = create_client(supabase_url, supabase_key)
-        if inputs:
+        if inputs["original_categories"]:
             payload = [
                     {
                         "id": category.id,

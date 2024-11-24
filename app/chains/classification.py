@@ -159,17 +159,10 @@ def get_classification_chain() -> Runnable:
         expected_category = max(other_categories_freq, key=lambda x: other_categories_freq[x])
         
         input["expected_category"] = expected_category
-        input["similar_categories"] = categories_names
+        input["similar_categories"] = list(categories_names)
         input["is_dismissible"] = not(bool(
             expected_category in categories_names
         )) and len(categories_names) > 0 and expected_category != ""
-        message_data = {
-            "title": input["original_input"]["title"],
-            "message": input["original_input"]["message"],
-            "is_dismissable": input["is_dismissable"],
-        }
-        insert_message_to_supabase(message_data)
-
         return input
     
     def _check_active_inferred_categories(input: dict):
@@ -205,9 +198,18 @@ def get_classification_chain() -> Runnable:
     def _manage_notification(input: dict):
         dismissal_resolution: NotificationDismissal = input["is_dismissible"]
 
+        message_data = {
+            "title": input["original_input"]["original_input"]["original_input"]["title"],
+            "message": input["original_input"]["original_input"]["original_input"]["message"],
+            "is_dismissable": dismissal_resolution.is_dismissible,
+            "reason": dismissal_resolution.reason,
+            "confidence": dismissal_resolution.confidence,
+        }
+        insert_message_to_supabase(message_data)
+
         if dismissal_resolution.is_dismissible:
             dismiss_push(
-                push=input["original_input"]
+                push=input["original_input"]["original_input"]["original_input"]
             )
 
     classification_chain: Runnable = (

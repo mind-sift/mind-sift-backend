@@ -195,6 +195,19 @@ def get_classification_chain() -> Runnable:
 
         return input
     
+    def _get_fixed_active_categories(input: list):
+        supabase: Client = create_client(supabase_url, supabase_key)
+
+        active_categories = (
+            supabase.table("categoriesConfig")
+            .select("name", "description")
+            .eq('active', True)
+            .eq("type", "fixed")
+            .execute()
+        ).data
+
+        return input + active_categories
+    
     def _manage_notification(input: dict):
         dismissal_resolution: NotificationDismissal = input["is_dismissible"]
 
@@ -234,7 +247,7 @@ def get_classification_chain() -> Runnable:
             "original_input": RunnablePassthrough(),
             "final_message": itemgetter("final_message"),
             "is_dismissible": {
-                "inferred_categories" : itemgetter("inferred_categories"),
+                "inferred_categories" : itemgetter("inferred_categories") | RunnableLambda(_get_fixed_active_categories),
                 "final_message": itemgetter("final_message"),
                 "is_dismissible": itemgetter("is_dismissible"),
                 "schema": RunnableLambda(lambda _: NotificationDismissal.model_json_schema()),

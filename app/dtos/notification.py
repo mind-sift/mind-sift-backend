@@ -1,5 +1,8 @@
 from pydantic import BaseModel, Field
 from uuid import uuid4
+import random
+
+CATEGORIES = ["news", "sports", "entertainment"]
 
 class NotificationDTO(BaseModel):
     id: str = Field(description="ID unico", default_factory=lambda: str(uuid4()))
@@ -11,4 +14,5 @@ class NotificationDTO(BaseModel):
     message: str = Field(description="Message of the notification")
     app_name: str = Field(description="Name of the app that generated the notification", default="WhatsApp")
     timestamp: float = Field(description="Timestamp of the notification")
+    category: str = Field(description="cateogry", default_factory=lambda: random.choice(CATEGORIES))
 

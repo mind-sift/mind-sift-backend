@@ -204,6 +204,7 @@ def get_classification_chain() -> Runnable:
             "is_dismissable": dismissal_resolution.is_dismissible,
             "reason": dismissal_resolution.reason,
             "confidence": dismissal_resolution.confidence,
+            "app": input["original_input"]["original_input"]["original_input"]["app_name"],
         }
         insert_message_to_supabase(message_data)
 

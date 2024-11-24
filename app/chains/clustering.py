@@ -169,7 +169,7 @@ def clusters_of_documents() -> dict[int, list[Document]]:
 
     vectors_df = get_vectors(
         collection_name="notifications",
-        time_window=SEVEN_DAYS
+        time_window=30
     )
 
     clustered_df = perform_dbscan_cosine_clustering(

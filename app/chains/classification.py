@@ -1,15 +1,20 @@
-from operator import itemgetter
 import os
-import json
-from app.dtos.notification import NotificationDTO
-from langchain_core.runnables import Runnable
-from langchain_milvus.vectorstores import Milvus
-from langchain_aws.embeddings import BedrockEmbeddings
-from langchain_core.vectorstores import VectorStore
-from langchain_core.documents import Document
 from functools import partial
-from langchain_core.runnables import RunnableLambda, RunnablePassthrough
+from operator import itemgetter
+
+from langchain_aws.embeddings import BedrockEmbeddings
+from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
+from langchain_core.runnables import (
+    Runnable,
+    RunnableLambda,
+    RunnableParallel,
+    RunnablePassthrough,
+)
+from langchain_core.vectorstores import VectorStore
+from langchain_milvus.vectorstores import Milvus
+
+from app.dtos.notification import NotificationDTO
 
 notification_prompt = """
 <NOTIFICATION>
@@ -27,6 +32,7 @@ notification_prompt = """
 
 notification_templates = PromptTemplate.from_template(notification_prompt)
 
+
 def store_message(input: dict, vector_store: VectorStore) -> dict:
 
     copy_input = input.copy()
@@ -42,20 +48,16 @@ def store_message(input: dict, vector_store: VectorStore) -> dict:
         },
     )
 
-    vector_store.add_documents(
-        documents=[notification_document],
-        ids=[pk]
-    )
+    vector_store.add_documents(documents=[notification_document], ids=[pk])
 
     input["final_message"] = final_message
 
     return input
 
+
 def get_classification_chain() -> Runnable:
 
-    embeddings = BedrockEmbeddings(
-        model_id="amazon.titan-embed-text-v1"
-    )
+    embeddings = BedrockEmbeddings(model_id="amazon.titan-embed-text-v1")
 
     connection_args = {
         "uri": os.environ.get("ZILLIZ_CLOUD_URI"),
@@ -71,15 +73,29 @@ def get_classification_chain() -> Runnable:
     )
 
     retriever = vector_store.as_retriever(
+        search_type="similarity", search_kwargs={"k": 5}
     )
-    
-    classification_chain: Runnable =  (
-        RunnableLambda(
-        func=partial(store_message, vector_store=vector_store)
-    ) | {
-        "original_input": RunnablePassthrough(),
-        "similar_nofications": itemgetter("final_message") |  retriever
-    }
+
+    def check_if_input_is_dismisable(input: dict):
+        original_input_category = input["original_input"].get("category")
+        other_categories = [
+            doc.metadata.get("category") for doc in input["similar_nofications"]
+        ]
+        input["is_dismissable"] = (
+            original_input_category is not None
+            and original_input_category in other_categories
+        )
+        return input
+
+    classification_chain: Runnable = (
+        RunnableLambda(func=partial(store_message, vector_store=vector_store))
+        | RunnableParallel(
+            {
+                "original_input": RunnablePassthrough(),
+                "similar_nofications": itemgetter("final_message") | retriever,
+            }
+        )
+        | RunnableLambda(check_if_input_is_dismisable)
     ).with_types(
         input_type=NotificationDTO,
     )

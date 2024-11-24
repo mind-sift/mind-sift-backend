@@ -16,6 +16,10 @@ from langchain_milvus.vectorstores import Milvus
 
 from app.dtos.notification import NotificationDTO
 
+from pydantic import BaseModel
+from typing import Any
+import requests
+
 notification_prompt = """
 <NOTIFICATION>
 
@@ -33,8 +37,31 @@ notification_prompt = """
 notification_templates = PromptTemplate.from_template(notification_prompt)
 
 
-def store_message(input: dict, vector_store: VectorStore) -> dict:
+def dismiss_push(push: dict):
+    KEY = os.getenv("PUSHBULLET_API_KEY")
 
+    headers = {
+        "Access-Token": KEY,
+        "Content-Type": "application/json",
+    }
+
+    json_data = {
+        "push": {
+            "notification_id": push["notification_id"],
+            "notification_tag": push["notification_tag"],
+            "package_name": push["package_name"],
+            "source_user_iden": push["source_user_iden"],
+            "type": "dismissal",
+        },
+        "type": "push",
+    }
+    response = requests.post(
+        "https://api.pushbullet.com/v2/ephemerals", headers=headers, json=json_data
+    )
+    print("Notification dismiss response status code", response.status_code)
+
+
+def store_message(input: dict, vector_store: VectorStore) -> dict:
     copy_input = input.copy()
     copy_input["timestamp"] = float(copy_input["timestamp"])
     final_message = notification_templates.format(**copy_input)
@@ -47,7 +74,6 @@ def store_message(input: dict, vector_store: VectorStore) -> dict:
             **copy_input,
         },
     )
-
     vector_store.add_documents(documents=[notification_document], ids=[pk])
 
     input["final_message"] = final_message
@@ -56,7 +82,6 @@ def store_message(input: dict, vector_store: VectorStore) -> dict:
 
 
 def get_classification_chain() -> Runnable:
-
     embeddings = BedrockEmbeddings(model_id="amazon.titan-embed-text-v1")
 
     connection_args = {
@@ -82,9 +107,10 @@ def get_classification_chain() -> Runnable:
             doc.metadata.get("category") for doc in input["similar_nofications"]
         ]
         input["is_dismissable"] = (
-            original_input_category is not None
-            and original_input_category in other_categories
+            original_input_category is not None and original_input_category in other_categories
         )
+        if input["is_dismissable"]:
+            dismiss_push(input["original_input"])
         return input
 
     classification_chain: Runnable = (
